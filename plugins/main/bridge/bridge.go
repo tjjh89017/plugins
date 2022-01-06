@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"sort"
 	"syscall"
 	"time"
 
@@ -46,18 +47,19 @@ const defaultBrName = "cni0"
 
 type NetConf struct {
 	types.NetConf
-	BrName              string `json:"bridge"`
-	IsGW                bool   `json:"isGateway"`
-	IsDefaultGW         bool   `json:"isDefaultGateway"`
-	ForceAddress        bool   `json:"forceAddress"`
-	IPMasq              bool   `json:"ipMasq"`
-	MTU                 int    `json:"mtu"`
-	HairpinMode         bool   `json:"hairpinMode"`
-	PromiscMode         bool   `json:"promiscMode"`
-	Vlan                int    `json:"vlan"`
-	PreserveDefaultVlan bool   `json:"preserveDefaultVlan"`
-	MacSpoofChk         bool   `json:"macspoofchk,omitempty"`
-	EnableDad           bool   `json:"enabledad,omitempty"`
+	BrName              string       `json:"bridge"`
+	IsGW                bool         `json:"isGateway"`
+	IsDefaultGW         bool         `json:"isDefaultGateway"`
+	ForceAddress        bool         `json:"forceAddress"`
+	IPMasq              bool         `json:"ipMasq"`
+	MTU                 int          `json:"mtu"`
+	HairpinMode         bool         `json:"hairpinMode"`
+	PromiscMode         bool         `json:"promiscMode"`
+	Vlan                int          `json:"vlan"`
+	VlanTrunk           []*VlanTrunk `json:"vlanTrunk,omitempty"`
+	PreserveDefaultVlan bool         `json:"preserveDefaultVlan"`
+	MacSpoofChk         bool         `json:"macspoofchk,omitempty"`
+	EnableDad           bool         `json:"enabledad,omitempty"`
 
 	Args struct {
 		Cni BridgeArgs `json:"cni,omitempty"`
@@ -66,7 +68,14 @@ type NetConf struct {
 		Mac string `json:"mac,omitempty"`
 	} `json:"runtimeConfig,omitempty"`
 
-	mac string
+	mac   string
+	vlans []int
+}
+
+type VlanTrunk struct {
+	MinID *int `json:"minID,omitempty"`
+	MaxID *int `json:"maxID,omitempty"`
+	ID    *int `json:"id,omitempty"`
 }
 
 type BridgeArgs struct {
@@ -104,6 +113,12 @@ func loadNetConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 	if n.Vlan < 0 || n.Vlan > 4094 {
 		return nil, "", fmt.Errorf("invalid VLAN ID %d (must be between 0 and 4094)", n.Vlan)
 	}
+	var err error
+	n.vlans, err = collectVlanTrunk(n.VlanTrunk)
+	if err != nil {
+		// fail to parsing
+		return nil, "", err
+	}
 
 	if envArgs != "" {
 		e := MacEnvArgs{}
@@ -125,6 +140,59 @@ func loadNetConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 	}
 
 	return n, n.CNIVersion, nil
+}
+
+// This method is copied from https://github.com/k8snetworkplumbingwg/ovs-cni/blob/v0.27.2/pkg/plugin/plugin.go
+func collectVlanTrunk(vlanTrunk []*VlanTrunk) ([]int, error) {
+	if vlanTrunk == nil {
+		return nil, nil
+	}
+
+	vlanMap := make(map[int]bool)
+	for _, item := range vlanTrunk {
+		var minID int
+		var maxID int
+		var ID int
+		if item.MinID != nil {
+			minID = *item.MinID
+			if minID < 0 || minID > 4094 {
+				return nil, errors.New("incorrect trunk minID parameter")
+			}
+		}
+		if item.MaxID != nil {
+			maxID = *item.MaxID
+			if maxID < 0 || maxID > 4094 {
+				return nil, errors.New("incorrect trunk maxID parameter")
+			}
+			if maxID < minID {
+				return nil, errors.New("minID is greater than maxID in trunk parameter")
+			}
+		}
+		if minID > 0 && maxID > 0 {
+			for v := minID; v <= maxID; v++ {
+				vlanMap[v] = true
+			}
+		}
+
+		// single vid
+		if item.ID != nil {
+			ID = *item.ID
+			if ID < 0 || ID > 4094 {
+				return nil, errors.New("incorrect trunk id parameter")
+			}
+			vlanMap[ID] = true
+		}
+	}
+
+	if len(vlanMap) == 0 {
+		return nil, nil
+	}
+	vlans := make([]int, 0, len(vlanMap))
+	for k := range vlanMap {
+		vlans = append(vlans, k)
+	}
+	sort.Slice(vlans, func(i int, j int) bool { return vlans[i] < vlans[j] })
+	return vlans, nil
 }
 
 // calcGateways processes the results from the IPAM plugin and does the
@@ -316,7 +384,7 @@ func ensureVlanInterface(br *netlink.Bridge, vlanID int, preserveDefaultVlan boo
 			return nil, fmt.Errorf("faild to find host namespace: %v", err)
 		}
 
-		_, brGatewayIface, err := setupVeth(hostNS, br, name, br.MTU, false, vlanID, preserveDefaultVlan, "")
+		_, brGatewayIface, err := setupVeth(hostNS, br, name, br.MTU, false, vlanID, nil, preserveDefaultVlan, "")
 		if err != nil {
 			return nil, fmt.Errorf("faild to create vlan gateway %q: %v", name, err)
 		}
@@ -335,7 +403,7 @@ func ensureVlanInterface(br *netlink.Bridge, vlanID int, preserveDefaultVlan boo
 	return brGatewayVeth, nil
 }
 
-func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairpinMode bool, vlanID int, preserveDefaultVlan bool, mac string) (*current.Interface, *current.Interface, error) {
+func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairpinMode bool, vlanID int, vlans []int, preserveDefaultVlan bool, mac string) (*current.Interface, *current.Interface, error) {
 	contIface := &current.Interface{}
 	hostIface := &current.Interface{}
 
@@ -386,6 +454,14 @@ func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairp
 		}
 	}
 
+	// S1031: unnecessary nil check around range (gosimple)
+	for _, v := range vlans {
+		err = netlink.BridgeVlanAdd(hostVeth, uint16(v), false, false, false, true)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %w", hostIface.Name, err)
+		}
+	}
+
 	return hostIface, contIface, nil
 }
 
@@ -414,7 +490,10 @@ func calcGatewayIP(ipn *net.IPNet) net.IP {
 }
 
 func setupBridge(n *NetConf) (*netlink.Bridge, *current.Interface, error) {
-	vlanFiltering := n.Vlan != 0
+	vlanFiltering := false
+	if n.Vlan != 0 || n.VlanTrunk != nil {
+		vlanFiltering = true
+	}
 	// create bridge if necessary
 	br, err := ensureBridge(n.BrName, n.MTU, n.PromiscMode, vlanFiltering)
 	if err != nil {
@@ -452,6 +531,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return fmt.Errorf("cannot set hairpin mode and promiscuous mode at the same time")
 	}
 
+	if n.vlans != nil && len(n.vlans) > 0 && isLayer3 {
+		return fmt.Errorf("cannot set vlanTrunk and IPAM at the same time")
+	}
+
 	br, brInterface, err := setupBridge(n)
 	if err != nil {
 		return err
@@ -463,7 +546,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	defer netns.Close()
 
-	hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode, n.Vlan, n.PreserveDefaultVlan, n.mac)
+	hostInterface, containerInterface, err := setupVeth(netns, br, args.IfName, n.MTU, n.HairpinMode, n.Vlan, n.vlans, n.PreserveDefaultVlan, n.mac)
 	if err != nil {
 		return err
 	}
