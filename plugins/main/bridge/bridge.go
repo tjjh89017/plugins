@@ -148,7 +148,7 @@ func collectVlanTrunk(vlanTrunk []*VlanTrunk) ([]int, error) {
 		return nil, nil
 	}
 
-	vlanMap := make(map[int]bool)
+	vlanMap := make(map[int]struct{})
 	for _, item := range vlanTrunk {
 		var minID int
 		var maxID int
@@ -170,7 +170,7 @@ func collectVlanTrunk(vlanTrunk []*VlanTrunk) ([]int, error) {
 		}
 		if minID > 0 && maxID > 0 {
 			for v := minID; v <= maxID; v++ {
-				vlanMap[v] = true
+				vlanMap[v] = struct{}{}
 			}
 		}
 
@@ -180,7 +180,7 @@ func collectVlanTrunk(vlanTrunk []*VlanTrunk) ([]int, error) {
 			if ID < 0 || ID > 4094 {
 				return nil, errors.New("incorrect trunk id parameter")
 			}
-			vlanMap[ID] = true
+			vlanMap[ID] = struct{}{}
 		}
 	}
 
@@ -531,7 +531,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return fmt.Errorf("cannot set hairpin mode and promiscuous mode at the same time")
 	}
 
-	if n.vlans != nil && len(n.vlans) > 0 && isLayer3 {
+	if len(n.vlans) > 0 && isLayer3 {
 		return fmt.Errorf("cannot set vlanTrunk and IPAM at the same time")
 	}
 
