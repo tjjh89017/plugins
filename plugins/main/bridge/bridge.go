@@ -153,31 +153,32 @@ func collectVlanTrunk(vlanTrunk []*VlanTrunk) ([]int, error) {
 		var minID int
 		var maxID int
 		var ID int
-		if item.MinID != nil {
+
+		if item.MinID != nil && item.MaxID != nil {
 			minID = *item.MinID
-			if minID < 0 || minID > 4094 {
+			if minID <= 0 || minID > 4094 {
 				return nil, errors.New("incorrect trunk minID parameter")
 			}
-		}
-		if item.MaxID != nil {
 			maxID = *item.MaxID
-			if maxID < 0 || maxID > 4094 {
+			if maxID <= 0 || maxID > 4094 {
 				return nil, errors.New("incorrect trunk maxID parameter")
 			}
 			if maxID < minID {
 				return nil, errors.New("minID is greater than maxID in trunk parameter")
 			}
-		}
-		if minID > 0 && maxID > 0 {
 			for v := minID; v <= maxID; v++ {
 				vlanMap[v] = struct{}{}
 			}
 		}
 
+		if item.MinID != nil || item.MaxID != nil {
+			return nil, errors.New("minID and maxID should be configured simultaneously")
+		}
+
 		// single vid
 		if item.ID != nil {
 			ID = *item.ID
-			if ID < 0 || ID > 4094 {
+			if ID <= 0 || ID > 4094 {
 				return nil, errors.New("incorrect trunk id parameter")
 			}
 			vlanMap[ID] = struct{}{}
