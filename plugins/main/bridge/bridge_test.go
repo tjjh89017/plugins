@@ -1902,7 +1902,6 @@ var _ = Describe("bridge Operations", func() {
 			tc := testCase{
 				cniVersion: ver,
 				isLayer2:   true,
-				vlan:       100,
 				vlanTrunk: []*VlanTrunk{
 					{ID: &id},
 					{
