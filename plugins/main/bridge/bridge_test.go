@@ -1764,6 +1764,29 @@ var _ = Describe("bridge Operations", func() {
 		Expect(testutils.UnmountNS(targetNS)).To(Succeed())
 	})
 
+	DescribeTable(
+		"collectVlanTrunk succeeds",
+		func(vlanTrunks ...*VlanTrunk, expectedVIDs []int) {
+			Expect(collectVlanTrunk(vlanTrunks)).To(Equal(expectedVIDs))
+		},
+		Entry("", &VlanTrunk{}, []int{}),
+		Entry("", &VlanTrunk{minID: 100, maxID: 105}, []int{100, 101, 102, 103, 104, 105}),
+		Entry("", &VlanTrunk{minID: 100, maxID: 105}, &VlanTrunk{id: 200}, []int{100, 101, 102, 103, 104, 105, 200}),
+	)
+
+	DescribeTable(
+		"collectVlanTrunk **fails**",
+		func(vlanTrunks ...*vlanTrunk, expectedError error) {
+			Expect(collectVlanTrunk(vlanTrunks)).To(MatchError(expectedError))
+		},
+		Entry("", &VlanTrunk{minID: 100}, fmt.Errorf("minID and maxID should be configured simultaneously, maxID is missing")),
+		Entry("", &VlanTrunk{maxID: 100}, fmt.Errorf("minID and maxID should be configured simultaneously, minID is missing")),
+		Entry("", &VlanTrunk{minID: -100, maxID: 105}, fmt.Errorf("incorrect trunk minID parameter")),
+		Entry("", &VlanTrunk{minID: 10000, maxID: 105}, fmt.Errorf("incorrect trunk minID parameter")),
+		Entry("", &VlanTrunk{minID: 100, maxID: 10000}, fmt.Errorf("incorrect trunk minID parameter")),
+		Entry("", &VlanTrunk{minID: 100, maxID: -1}, fmt.Errorf("incorrect trunk minID parameter")),
+	)
+
 	for _, ver := range testutils.AllSpecVersions {
 		// Redefine ver inside for scope so real value is picked up by each dynamically defined It()
 		// See Gingkgo's "Patterns for dynamically generating tests" documentation.
