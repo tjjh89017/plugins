@@ -460,13 +460,12 @@ func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairp
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %v", hostIface.Name, err)
 		}
-	} else {
-		// vlans might be empty or nil, just skip it
-		for _, v := range vlans {
-			err = netlink.BridgeVlanAdd(hostVeth, uint16(v), false, false, false, true)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %w", hostIface.Name, err)
-			}
+	}
+
+	for _, v := range vlans {
+		err = netlink.BridgeVlanAdd(hostVeth, uint16(v), false, false, false, true)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %w", hostIface.Name, err)
 		}
 	}
 
