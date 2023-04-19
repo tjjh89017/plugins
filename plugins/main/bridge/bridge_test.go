@@ -1767,6 +1767,8 @@ var _ = Describe("bridge Operations", func() {
 	var (
 		correctMinID int = 100
 		correctMaxID int = 105
+		overID       int = 5000
+		negativeID   int = -1
 	)
 
 	DescribeTable(
@@ -1774,13 +1776,27 @@ var _ = Describe("bridge Operations", func() {
 		func(vlanTrunks []*VlanTrunk, expectedVIDs []int) {
 			Expect(collectVlanTrunk(vlanTrunks)).To(Equal(expectedVIDs))
 		},
-		Entry("", &[]*VlanTrunk{}, []int{}),
-		Entry("", &[]*VlanTrunk{
+		Entry("when provided an empty VLAN trunk configuration", []*VlanTrunk{}, nil),
+		Entry("when provided a VLAN trunk configuration with both min / max range", []*VlanTrunk{
 			{
 				MinID: &correctMinID,
 				MaxID: &correctMaxID,
 			},
 		}, []int{100, 101, 102, 103, 104, 105}),
+	)
+
+	DescribeTable(
+		"collectVlanTrunk failed",
+		func(vlanTrunks []*VlanTrunk, expectedError error) {
+			_, err := collectVlanTrunk(vlanTrunks)
+			Expect(err).To(MatchError(expectedError))
+		},
+		Entry("when not passed the maxID", []*VlanTrunk{{MinID: &correctMinID}}, fmt.Errorf("minID and maxID should be configured simultaneously, maxID is missing")),
+		Entry("when not passed the minID", []*VlanTrunk{{MaxID: &correctMaxID}}, fmt.Errorf("minID and maxID should be configured simultaneously, minID is missing")),
+		Entry("when the minID is negative", []*VlanTrunk{{MinID: &negativeID, MaxID: &correctMaxID}}, fmt.Errorf("incorrect trunk minID parameter")),
+		Entry("when the minID is larger than 4094", []*VlanTrunk{{MinID: &overID, MaxID: &correctMaxID}}, fmt.Errorf("incorrect trunk minID parameter")),
+		Entry("when the maxID is larger than 4094", []*VlanTrunk{{MinID: &correctMinID, MaxID: &overID}}, fmt.Errorf("incorrect trunk maxID parameter")),
+		Entry("when the maxID is negative", []*VlanTrunk{{MinID: &correctMinID, MaxID: &overID}}, fmt.Errorf("incorrect trunk maxID parameter")),
 	)
 
 	for _, ver := range testutils.AllSpecVersions {
