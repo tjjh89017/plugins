@@ -454,6 +454,10 @@ func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairp
 	}
 
 	for _, v := range vlans {
+		if vlanID != 0 && vlanID == v {
+			// skip PVID
+			continue
+		}
 		err = netlink.BridgeVlanAdd(hostVeth, uint16(v), false, false, false, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %w", hostIface.Name, err)
