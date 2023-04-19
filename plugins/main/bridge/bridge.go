@@ -441,21 +441,20 @@ func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairp
 		return nil, nil, fmt.Errorf("failed to setup hairpin mode for %v: %v", hostVeth.Attrs().Name, err)
 	}
 
-	if vlanID != 0 {
-		if !preserveDefaultVlan {
-			err = removeDefaultVlan(hostVeth)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to remove default vlan on interface %q: %v", hostIface.Name, err)
-			}
+	if (vlanID != 0 || len(vlans) > 0) && !preserveDefaultVlan {
+		err = removeDefaultVlan(hostVeth)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to remove default vlan on interface %q: %v", hostIface.Name, err)
 		}
+	}
 
+	if vlanID != 0 {
 		err = netlink.BridgeVlanAdd(hostVeth, uint16(vlanID), true, true, false, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %v", hostIface.Name, err)
 		}
 	}
 
-	// S1031: unnecessary nil check around range (gosimple)
 	for _, v := range vlans {
 		err = netlink.BridgeVlanAdd(hostVeth, uint16(v), false, false, false, true)
 		if err != nil {
