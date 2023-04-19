@@ -1777,8 +1777,8 @@ var _ = Describe("bridge Operations", func() {
 		Entry("", &[]*VlanTrunk{}, []int{}),
 		Entry("", &[]*VlanTrunk{
 			&VlanTrunk{
-				minID: &correctMinID,
-				maxID: &correctMaxID,
+				MinID: &correctMinID,
+				MaxID: &correctMaxID,
 			},
 		}, []int{100, 101, 102, 103, 104, 105}),
 	)
