@@ -120,6 +120,11 @@ func loadNetConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 		return nil, "", err
 	}
 
+	// Currently bridge CNI only support access port(untagged only) or trunk port(tagged only)
+	if n.Vlan > 0 && n.vlans != nil {
+		return nil, "", errors.New("cannot set vlan and vlanTrunk at the same time")
+	}
+
 	if envArgs != "" {
 		e := MacEnvArgs{}
 		if err := types.LoadArgs(envArgs, &e); err != nil {
@@ -169,8 +174,10 @@ func collectVlanTrunk(vlanTrunk []*VlanTrunk) ([]int, error) {
 			for v := minID; v <= maxID; v++ {
 				vlanMap[v] = struct{}{}
 			}
-		} else if item.MinID != nil || item.MaxID != nil {
-			return nil, errors.New("minID and maxID should be configured simultaneously")
+		} else if item.MinID == nil && item.MaxID != nil {
+			return nil, errors.New("minID and maxID should be configured simultaneously, minID is missing")
+		} else if item.MinID != nil && item.MaxID == nil {
+			return nil, errors.New("minID and maxID should be configured simultaneously, maxID is missing")
 		}
 
 		// single vid
@@ -446,21 +453,19 @@ func setupVeth(netns ns.NetNS, br *netlink.Bridge, ifName string, mtu int, hairp
 		}
 	}
 
+	// Currently bridge CNI only support access port(untagged only) or trunk port(tagged only)
 	if vlanID != 0 {
 		err = netlink.BridgeVlanAdd(hostVeth, uint16(vlanID), true, true, false, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %v", hostIface.Name, err)
 		}
-	}
-
-	for _, v := range vlans {
-		if vlanID != 0 && vlanID == v {
-			// skip PVID
-			continue
-		}
-		err = netlink.BridgeVlanAdd(hostVeth, uint16(v), false, false, false, true)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %w", hostIface.Name, err)
+	} else {
+		// vlans might be empty or nil, just skip it
+		for _, v := range vlans {
+			err = netlink.BridgeVlanAdd(hostVeth, uint16(v), false, false, false, true)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to setup vlan tag on interface %q: %w", hostIface.Name, err)
+			}
 		}
 	}
 
@@ -531,10 +536,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	if n.HairpinMode && n.PromiscMode {
 		return fmt.Errorf("cannot set hairpin mode and promiscuous mode at the same time")
-	}
-
-	if len(n.vlans) > 0 && isLayer3 {
-		return fmt.Errorf("cannot set vlanTrunk and IPAM at the same time")
 	}
 
 	br, brInterface, err := setupBridge(n)
