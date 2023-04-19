@@ -169,9 +169,7 @@ func collectVlanTrunk(vlanTrunk []*VlanTrunk) ([]int, error) {
 			for v := minID; v <= maxID; v++ {
 				vlanMap[v] = struct{}{}
 			}
-		}
-
-		if item.MinID != nil || item.MaxID != nil {
+		} else if item.MinID != nil || item.MaxID != nil {
 			return nil, errors.New("minID and maxID should be configured simultaneously")
 		}
 
